@@ -2,30 +2,33 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart'; 
 import 'package:provider/provider.dart'; 
-import 'package:supabase_flutter/supabase_flutter.dart'; // ✅ إضافة مكتبة سوبابيز
-import 'package:url_strategy/url_strategy.dart'; // ✅ عشان الروابط في الويب تبقى نضيفة
-import 'screen/home_layout.dart'; 
+import 'package:supabase_flutter/supabase_flutter.dart'; 
+import 'package:url_strategy/url_strategy.dart'; 
+
+// ✅ استدعاء الشاشات والكنترولر
 import 'controllers/business_controller.dart'; 
+import 'screen/home_layout.dart'; 
+import 'screen/shipping_companies_screen.dart'; // 🚚 استدعاء صفحة الشركات
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ 1. تفعيل وضع الروابط النضيفة للويب (بيشيل حرف # من المتصفح)
+  // 1. تفعيل الروابط النضيفة
   setPathUrlStrategy();
 
-  // ✅ 2. تفعيل التواريخ والعملات
+  // 2. تفعيل التواريخ
   await initializeDateFormatting();
 
-  // ✅ 3. الربط مع Supabase (حط بيانات مشروعك هنا)
+  // 3. تهيئة Supabase
   await Supabase.initialize(
-    url: 'https://tmjnwfezpuizqzabslno.supabase.co', // 👈 حط الـ Project URL بتاعك هنا
-    anonKey: 'sb_publishable_1p196b893_uwodm-9dihgA_TKIFraxh', // 👈 حط الـ Anon Key بتاعك هنا
+    url: 'https://tmjnwfezpuizqzabslno.supabase.co', 
+    anonKey: 'sb_publishable_1p196b893_uwodm-9dihgA_TKIFraxh', 
   );
 
-  // ملاحظة: شيلنا controller.initDB() لأن سوبابيز مش محتاجة إنشاء ملف محلي
   runApp(
     ChangeNotifierProvider(
-      create: (_) => BusinessController(),
+      // 🔥 تعديل مهم: بننادي على fetchData عشان يحمل البيانات أول ما يفتح
+      create: (_) => BusinessController()..initDB(), 
       child: const MyBusinessApp(),
     ),
   );
@@ -40,7 +43,6 @@ class MyBusinessApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Business Pro',
       
-      // ✅ دعم اللغة العربية في التطبيق بالكامل
       locale: const Locale('ar', 'EG'),
       
       theme: ThemeData(
@@ -55,7 +57,6 @@ class MyBusinessApp extends StatelessWidget {
           error: const Color(0xFFD32F2F),
         ),
         
-        // الخط العربي (القاهرة)
         textTheme: GoogleFonts.cairoTextTheme(Theme.of(context).textTheme),
 
         appBarTheme: const AppBarTheme(
@@ -107,7 +108,13 @@ class MyBusinessApp extends StatelessWidget {
         ),
       ),
       
-      home: const HomeLayout(), 
+      // ✅ تعريف الروت عشان التنقل يشتغل صح
+      routes: {
+        '/': (context) => const HomeLayout(),
+        '/shipping': (context) => const ShippingCompaniesScreen(),
+      },
+      
+      initialRoute: '/', // نقطة البداية
     );
   }
 }

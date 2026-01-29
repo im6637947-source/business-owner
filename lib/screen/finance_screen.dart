@@ -14,11 +14,13 @@ class FinanceScreen extends StatefulWidget {
 
 class _FinanceScreenState extends State<FinanceScreen> {
   bool _isSelectionModeActive = false;
+  DateTime? _filterDate; // 📅 متغير لحفظ التاريخ المختار
 
   @override
   Widget build(BuildContext context) {
     final currencyFormat = NumberFormat.currency(locale: 'ar_EG', symbol: 'ج.م');
     final dateFormat = DateFormat('yyyy/MM/dd - hh:mm a', 'en');
+    final filterDateFormat = DateFormat('yyyy-MM-dd');
 
     return Consumer<BusinessController>(
       builder: (context, controller, child) {
@@ -49,15 +51,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
             actions: [
               // --- أزرار وضع التحديد ---
               if (_isSelectionModeActive) ...[
-                
-                // ✅✅✅ زرار تحديد الكل (الجديد) ✅✅✅
                 IconButton(
                   tooltip: "تحديد الكل",
                   icon: const Icon(Icons.select_all, color: Colors.white),
                   onPressed: () => controller.selectAllTransactions(),
                 ),
-
-                // زرار الإكسيل
                 IconButton(
                   tooltip: "تصدير Excel",
                   icon: const Icon(Icons.table_view, color: Colors.greenAccent),
@@ -66,18 +64,15 @@ class _FinanceScreenState extends State<FinanceScreen> {
                     setState(() => _isSelectionModeActive = false);
                   },
                 ),
-                
-                // زرار طباعة المحدد
                 IconButton(
                   icon: const Icon(Icons.print, color: Colors.white),
                   tooltip: "طباعة المحدد",
                   onPressed: () {
                     if (controller.selectedTransactionIds.isNotEmpty) {
-                      List<Map<String, dynamic>> selectedList = controller.transactions
+                      List<Map<String, dynamic>> selectedList = controller.displayedTransactions
                           .where((t) => controller.selectedTransactionIds.contains(t['id']))
                           .toList();
                       _showPdfPreview(context, selectedList, controller.totalBalance);
-                      
                       setState(() {
                         _isSelectionModeActive = false;
                         controller.clearTransactionSelection();
@@ -88,31 +83,29 @@ class _FinanceScreenState extends State<FinanceScreen> {
               ] 
               // --- أزرار الوضع العادي ---
               else ...[
-                // زرار تفعيل التحديد
                 IconButton(
                   tooltip: "تحديد عناصر",
                   icon: const Icon(Icons.checklist_rtl, color: Colors.white),
-                  onPressed: () {
-                    setState(() {
-                      _isSelectionModeActive = true;
-                    });
-                  },
+                  onPressed: () => setState(() => _isSelectionModeActive = true),
                 ),
-                // طباعة الكل
                 IconButton(
                   icon: const Icon(Icons.print, color: Colors.white),
                   tooltip: "طباعة التقرير",
                   onPressed: () {
                     if (controller.displayedTransactions.isNotEmpty) {
                       _showPdfPreview(context, controller.displayedTransactions, controller.totalBalance);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("لا توجد بيانات للطباعة")));
                     }
                   },
                 ),
               ],
             ],
           ),
+          
           body: Column(
             children: [
+              // 1. ملخص الرصيد (Dashboard)
               if (!_isSelectionModeActive)
               Container(
                 padding: const EdgeInsets.all(20),
@@ -142,77 +135,129 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
               const SizedBox(height: 5),
 
+              // 2. شريط الفلاتر والتاريخ
               if (!_isSelectionModeActive)
-              SizedBox(
-                height: 40,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                color: Colors.grey[100],
+                child: Row(
                   children: [
-                    _filterBtn(controller, "الكل", "all"),
+                    _buildFilterButton(controller, "الكل", "all"),
                     const SizedBox(width: 5),
-                    _filterBtn(controller, "وارد", "income"),
+                    _buildFilterButton(controller, "وارد", "income", activeColor: Colors.green),
                     const SizedBox(width: 5),
-                    _filterBtn(controller, "صادر", "expense"),
+                    _buildFilterButton(controller, "صادر", "expense", activeColor: Colors.red),
+                    
+                    const Spacer(), 
+
+                    // 📅 زرار التاريخ
+                    Container(
+                      decoration: BoxDecoration(
+                        color: _filterDate != null ? const Color(0xFF1A237E) : Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.grey.shade400)
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            constraints: const BoxConstraints(minWidth: 40, minHeight: 36),
+                            padding: EdgeInsets.zero,
+                            icon: Icon(Icons.calendar_month, size: 20, color: _filterDate != null ? Colors.white : Colors.grey[700]),
+                            onPressed: () async {
+                              DateTime? picked = await showDatePicker(
+                                context: context, 
+                                initialDate: _filterDate ?? DateTime.now(), 
+                                firstDate: DateTime(2020), 
+                                lastDate: DateTime(2030)
+                              );
+                              if (picked != null) {
+                                setState(() => _filterDate = picked);
+                                controller.filterTransactions(
+                                  type: controller.currentFilter, 
+                                  date: filterDateFormat.format(picked)
+                                );
+                              }
+                            },
+                          ),
+                          if (_filterDate != null)
+                            IconButton(
+                              constraints: const BoxConstraints(minWidth: 30, minHeight: 36),
+                              padding: const EdgeInsets.only(right: 8),
+                              icon: const Icon(Icons.close, size: 18, color: Colors.white),
+                              onPressed: () {
+                                setState(() => _filterDate = null);
+                                controller.filterTransactions(type: controller.currentFilter, date: null);
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
 
-              if (!_isSelectionModeActive) const Divider(),
+              if (!_isSelectionModeActive) const Divider(height: 1),
 
+              // 3. القائمة (Transactions List) مع ميزة السحب للتحديث (Pull to Refresh)
               Expanded(
                 child: controller.displayedTransactions.isEmpty
                     ? const Center(child: Text("مفيش حركات مسجلة", style: TextStyle(color: Colors.grey)))
-                    : ListView.builder(
-                        itemCount: controller.displayedTransactions.length,
-                        padding: const EdgeInsets.only(bottom: 80),
-                        itemBuilder: (context, index) {
-                          final trans = controller.displayedTransactions[index];
-                          bool isIncome = trans['isIncome'] == 1;
-                          bool isSelected = controller.selectedTransactionIds.contains(trans['id']);
-
-                          return Card(
-                            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            color: isSelected ? const Color(0xFF1A237E).withOpacity(0.1) : Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              side: isSelected ? const BorderSide(color: Color(0xFF1A237E), width: 2) : BorderSide.none,
-                            ),
-                            child: ListTile(
-                              leading: _isSelectionModeActive
-                                  ? Checkbox(
-                                      value: isSelected,
-                                      activeColor: const Color(0xFF1A237E),
-                                      onChanged: (val) => controller.toggleTransactionSelection(trans['id']),
-                                    )
-                                  : CircleAvatar(
-                                      backgroundColor: isIncome ? Colors.green.shade50 : Colors.red.shade50,
-                                      child: Icon(isIncome ? Icons.arrow_downward : Icons.arrow_upward,
-                                          color: isIncome ? Colors.green : Colors.red),
-                                    ),
-                              title: Text(trans['title'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text(dateFormat.format(DateTime.parse(trans['date']))),
-                              trailing: Text(
-                                currencyFormat.format(trans['amount']),
-                                style: TextStyle(fontWeight: FontWeight.bold, color: isIncome ? Colors.green : Colors.red),
-                              ),
-                              onTap: () {
-                                if (_isSelectionModeActive) {
-                                  controller.toggleTransactionSelection(trans['id']);
-                                } else {
-                                  _openAddDialog(context, existingData: trans);
-                                }
-                              },
-                              onLongPress: () {
-                                if (!_isSelectionModeActive) {
-                                  _confirmDelete(context, controller, trans['id']);
-                                } else {
-                                  controller.toggleTransactionSelection(trans['id']);
-                                }
-                              },
-                            ),
-                          );
+                    : RefreshIndicator( // ✅ ميزة جديدة: اسحب الشاشة لتحت عشان تعمل ريفرش
+                        onRefresh: () async {
+                          await controller.fetchTransactions();
                         },
+                        child: ListView.builder(
+                          itemCount: controller.displayedTransactions.length,
+                          padding: const EdgeInsets.only(bottom: 80),
+                          itemBuilder: (context, index) {
+                            final trans = controller.displayedTransactions[index];
+                            bool isIncome = trans['isIncome'] == 1;
+                            bool isSelected = controller.selectedTransactionIds.contains(trans['id']);
+
+                            return Card(
+                              margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              color: isSelected ? const Color(0xFF1A237E).withOpacity(0.1) : Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                side: isSelected ? const BorderSide(color: Color(0xFF1A237E), width: 2) : BorderSide.none,
+                              ),
+                              child: ListTile(
+                                leading: _isSelectionModeActive
+                                    ? Checkbox(
+                                        value: isSelected,
+                                        activeColor: const Color(0xFF1A237E),
+                                        onChanged: (val) => controller.toggleTransactionSelection(trans['id']),
+                                      )
+                                    : CircleAvatar(
+                                        backgroundColor: isIncome ? Colors.green.shade50 : Colors.red.shade50,
+                                        child: Icon(isIncome ? Icons.arrow_downward : Icons.arrow_upward,
+                                            color: isIncome ? Colors.green : Colors.red),
+                                      ),
+                                title: Text(trans['title'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Text(dateFormat.format(DateTime.parse(trans['date']))),
+                                trailing: Text(
+                                  currencyFormat.format(trans['amount']),
+                                  style: TextStyle(fontWeight: FontWeight.bold, color: isIncome ? Colors.green : Colors.red),
+                                ),
+                                onTap: () {
+                                  if (_isSelectionModeActive) {
+                                    controller.toggleTransactionSelection(trans['id']);
+                                  } else {
+                                    _openAddDialog(context, existingData: trans);
+                                  }
+                                },
+                                onLongPress: () {
+                                  if (!_isSelectionModeActive) {
+                                    _confirmDelete(context, controller, trans['id']);
+                                  } else {
+                                    controller.toggleTransactionSelection(trans['id']);
+                                  }
+                                },
+                              ),
+                            );
+                          },
+                        ),
                       ),
               ),
             ],
@@ -230,14 +275,33 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
-  // ... (باقي الدوال Helper Methods زي ما هي في الكود اللي فات بالظبط) ...
-  void _showPdfPreview(BuildContext context, List<Map<String, dynamic>> transactions, double balance) {
-    Navigator.push(context, MaterialPageRoute(builder: (context) => Scaffold(
-      appBar: AppBar(title: const Text("معاينة التقرير المالي")),
-      body: PdfPreview(
-        build: (format) => PdfHelper.generateFinanceReportBytes(transactions, balance),
+  // --- Widgets ---
+
+  Widget _buildFilterButton(BusinessController ctrl, String text, String filterValue, {Color activeColor = const Color(0xFF1A237E)}) {
+    bool isSelected = ctrl.currentFilter == filterValue;
+    return GestureDetector(
+      onTap: () {
+        String? dateStr = _filterDate != null ? DateFormat('yyyy-MM-dd').format(_filterDate!) : null;
+        ctrl.filterTransactions(type: filterValue, date: dateStr);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? activeColor : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? activeColor : Colors.grey.shade300),
+          boxShadow: isSelected ? [BoxShadow(color: activeColor.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))] : [],
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.black87,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
       ),
-    )));
+    );
   }
 
   Widget _statCard(String title, double val, Color color) {
@@ -248,17 +312,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
-  Widget _filterBtn(BusinessController ctrl, String txt, String val) {
-    bool sel = ctrl.currentFilter == val;
-    return InkWell(
-      onTap: () => ctrl.applyFilter(val),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
-        decoration: BoxDecoration(color: sel ? const Color(0xFF1A237E) : Colors.grey[200], borderRadius: BorderRadius.circular(20)),
-        child: Text(txt, style: TextStyle(color: sel ? Colors.white : Colors.black)),
-      ),
-    );
-  }
+  // --- Dialogs & Functions ---
 
   void _openAddDialog(BuildContext context, {Map? existingData}) {
     final titleCtrl = TextEditingController(text: existingData?['title']);
@@ -278,9 +332,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
               const SizedBox(height: 15),
               Row(
                 children: [
-                  Expanded(child: InkWell(onTap: () => setDialogState(() => isIncome = false), child: Container(padding: const EdgeInsets.all(12), color: !isIncome ? Colors.red : Colors.grey[200], alignment: Alignment.center, child: Text("مصروف", style: TextStyle(color: !isIncome ? Colors.white : Colors.black))))),
+                  Expanded(child: InkWell(onTap: () => setDialogState(() => isIncome = false), child: Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: !isIncome ? Colors.red : Colors.grey[200], borderRadius: BorderRadius.circular(8)), alignment: Alignment.center, child: Text("مصروف (خارج)", style: TextStyle(color: !isIncome ? Colors.white : Colors.black, fontWeight: FontWeight.bold))))),
                   const SizedBox(width: 10),
-                  Expanded(child: InkWell(onTap: () => setDialogState(() => isIncome = true), child: Container(padding: const EdgeInsets.all(12), color: isIncome ? Colors.green : Colors.grey[200], alignment: Alignment.center, child: Text("إيراد", style: TextStyle(color: isIncome ? Colors.white : Colors.black))))),
+                  Expanded(child: InkWell(onTap: () => setDialogState(() => isIncome = true), child: Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: isIncome ? Colors.green : Colors.grey[200], borderRadius: BorderRadius.circular(8)), alignment: Alignment.center, child: Text("إيراد (داخل)", style: TextStyle(color: isIncome ? Colors.white : Colors.black, fontWeight: FontWeight.bold))))),
                 ],
               ),
               const SizedBox(height: 15),
@@ -311,6 +365,15 @@ class _FinanceScreenState extends State<FinanceScreen> {
         ),
       ),
     );
+  }
+
+  void _showPdfPreview(BuildContext context, List<Map<String, dynamic>> transactions, double balance) {
+    Navigator.push(context, MaterialPageRoute(builder: (context) => Scaffold(
+      appBar: AppBar(title: const Text("معاينة التقرير المالي")),
+      body: PdfPreview(
+        build: (format) => PdfHelper.generateFinanceReportBytes(transactions, balance),
+      ),
+    )));
   }
 
   void _confirmDelete(BuildContext context, BusinessController ctrl, int id) {
