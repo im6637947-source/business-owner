@@ -47,12 +47,12 @@ class PdfHelper {
   static pw.Widget _buildFinalBill(Map<String, dynamic> order, pw.Font boldFont, pw.MemoryImage? logo) {
     double total = (order['total_price'] ?? 0) + (order['shipping_cost'] ?? 0);
     double remaining = total - (order['deposit'] ?? 0);
-    const double rowHeight = 35.0; 
+    const double rowHeight = 35.0;
 
     // ✅ حدود سوداء صريحة
     final PdfColor borderColor = PdfColors.black;
     // ✅ سمك الخط 1.5 عشان يبقى واضح
-    const double borderWidth = 1.5; 
+    const double borderWidth = 1.5;
 
     // تجهيز نص الموقع
     String locationText = "";
@@ -68,14 +68,13 @@ class PdfHelper {
         // 1. طبقة الخلفية (اللوجو الكبير الشفاف)
         if (logo != null)
           pw.Positioned(
-            // 👇👇👇 التحكم في مكان اللوجو 👇👇👇
-            top: 400, // زودت الرقم عشان ينزل لتحت (كان 350)
+            top: 400,
             left: 0,
             right: 0,
             child: pw.Opacity(
-              opacity: 0.15, // شفافية خفيفة
+              opacity: 0.15,
               child: pw.Center(
-                child: pw.Image(logo, width: 400), // حجم متوسط ومناسب
+                child: pw.Image(logo, width: 400),
               ),
             ),
           ),
@@ -94,11 +93,11 @@ class PdfHelper {
                     pw.Container(
                       width: 70,
                       alignment: pw.Alignment.centerLeft,
-                      child: logo != null 
-                        ? pw.Image(logo, height: 45) 
-                        : pw.SizedBox(),
+                      child: logo != null
+                          ? pw.Image(logo, height: 45)
+                          : pw.SizedBox(),
                     ),
-                    
+
                     // اسم البراند (في النص)
                     pw.Expanded(
                       child: pw.Column(
@@ -109,7 +108,7 @@ class PdfHelper {
                       ),
                     ),
 
-                    // مساحة وهمية يمين (عشان الاسم يفضل في النص)
+                    // مساحة وهمية يمين
                     pw.Container(width: 60),
                   ],
                 ),
@@ -123,7 +122,7 @@ class PdfHelper {
                 child: pw.Row(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    // الجزء الأيمن (البيانات)
+                    // الجزء الأيمن (البيانات الأساسية)
                     pw.Expanded(
                       flex: 65,
                       child: pw.Column(
@@ -137,7 +136,7 @@ class PdfHelper {
                       ),
                     ),
 
-                    // الجزء الأيسر (الستيكر والتحصيل)
+                    // الجزء الأيسر (المنتجات + التحصيل)
                     pw.Expanded(
                       flex: 35,
                       child: pw.Container(
@@ -146,23 +145,35 @@ class PdfHelper {
                         ),
                         child: pw.Column(
                           children: [
-                            // ستيكر
+                            // 🔥🔥🔥 التعديل هنا: مكان الستيكر حطينا المنتجات 🔥🔥🔥
                             pw.Container(
-                              height: rowHeight * 3,
+                              height: rowHeight * 3, // نفس الارتفاع عشان الجدول يظبط
                               width: double.infinity,
+                              padding: const pw.EdgeInsets.all(4), // هوامش عشان الكلام مليزقش
                               decoration: pw.BoxDecoration(
                                 border: pw.Border(bottom: pw.BorderSide(color: borderColor, width: borderWidth)),
                               ),
-                              alignment: pw.Alignment.center,
                               child: pw.Column(
-                                mainAxisAlignment: pw.MainAxisAlignment.center,
+                                crossAxisAlignment: pw.CrossAxisAlignment.start,
                                 children: [
-                                  pw.Text("ستيكر", style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, font: boldFont)),
-                                  pw.Text("Sticker", style: const pw.TextStyle(fontSize: 18)),
-                                ]
-                              )
+                                  // عنوان الخانة
+                                  pw.Text("محتوى الشحنة:", style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700, font: boldFont)),
+                                  pw.SizedBox(height: 2),
+                                  // تفاصيل المنتجات
+                                  pw.Expanded(
+                                    child: pw.Text(
+                                      order['details'] ?? 'لا يوجد تفاصيل',
+                                      textAlign: pw.TextAlign.right,
+                                      style: pw.TextStyle(fontSize: 11, font: boldFont, lineSpacing: 1.5),
+                                      maxLines: 6, // عشان لو الكلام كتير ميخرجش بره المربع
+                                      overflow: pw.TextOverflow.clip,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            // تحصيل
+
+                            // خانة التحصيل (زي ما هي)
                             pw.Container(
                               height: rowHeight,
                               decoration: pw.BoxDecoration(
@@ -177,7 +188,7 @@ class PdfHelper {
                                       border: pw.Border(right: pw.BorderSide(color: borderColor, width: borderWidth)),
                                     ),
                                     alignment: pw.Alignment.center,
-                                    child: pw.Text("تحصيل", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13)),
+                                    child: pw.Text("تحصيل", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13, font: boldFont)),
                                   ),
                                   pw.Expanded(
                                     child: pw.Container(
@@ -185,8 +196,8 @@ class PdfHelper {
                                       child: pw.FittedBox(
                                         fit: pw.BoxFit.scaleDown,
                                         child: pw.Text(
-                                          "${remaining.toStringAsFixed(0)}", 
-                                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 18)
+                                          "${remaining.toStringAsFixed(0)}",
+                                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 18, font: boldFont),
                                         ),
                                       ),
                                     ),
@@ -194,11 +205,12 @@ class PdfHelper {
                                 ],
                               ),
                             ),
-                            // ID
+
+                            // ID (زي ما هو)
                             pw.Container(
                               height: rowHeight,
                               alignment: pw.Alignment.center,
-                              child: pw.Text("#${order['id']}", style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)), 
+                              child: pw.Text("#${order['id']}", style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
                             ),
                           ],
                         ),

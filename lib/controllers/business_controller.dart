@@ -370,7 +370,11 @@ class BusinessController with ChangeNotifier {
       });
       await fetchTransactions();
       return true;
-    } catch (e) { return false; }
+    } catch (e) { 
+      // 👇 السطر ده مهم جداً: هيطبعلك الخطأ الحقيقي في الـ Console تحت
+      debugPrint("❌ Error adding transaction: $e");
+      return false;
+    }
   }
 
   Future<void> deleteTransaction(int id) async {
