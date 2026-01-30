@@ -5,29 +5,37 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'; 
 import 'package:url_strategy/url_strategy.dart'; 
 
-// ✅ استدعاء الشاشات والكنترولر
+// ✅ تأكد من مسارات الملفات دي عندك
 import 'controllers/business_controller.dart'; 
 import 'screen/home_layout.dart'; 
-import 'screen/shipping_companies_screen.dart'; // 🚚 استدعاء صفحة الشركات
+import 'screen/shipping_companies_screen.dart'; 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1. تفعيل الروابط النضيفة
+  // 1. تحسين الروابط
   setPathUrlStrategy();
 
-  // 2. تفعيل التواريخ
+  // 2. تهيئة التواريخ
   await initializeDateFormatting();
 
-  // 3. تهيئة Supabase
-  await Supabase.initialize(
-    url: 'https://tmjnwfezpuizqzabslno.supabase.co', 
-    anonKey: 'sb_publishable_1p196b893_uwodm-9dihgA_TKIFraxh', 
-  );
+  try {
+    // 3. تهيئة Supabase (حط المفتاح الصح هنا)
+    await Supabase.initialize(
+      url: 'https://tmjnwfezpuizqzabslno.supabase.co', 
+      // 🛑 روح موقع Supabase -> Project Settings -> API -> انسخ anon public key
+      // لازم يبدأ بـ eyJxhBg...
+      anonKey: 'sb_publishable_1p196b893_uwodm-9dihgA_TKIFraxh', 
+    );
+  } catch (e) {
+    // 🛑 لو حصل خطأ في الاتصال (نت مقطوع مثلاً) التطبيق هيعرض رسالة بدل ما يقفل
+    runApp(ErrorScreen(error: e.toString()));
+    return;
+  }
 
   runApp(
     ChangeNotifierProvider(
-      // 🔥 تعديل مهم: بننادي على fetchData عشان يحمل البيانات أول ما يفتح
+      // 🔥 ممتاز: بنحمل البيانات أول ما يفتح
       create: (_) => BusinessController()..initDB(), 
       child: const MyBusinessApp(),
     ),
@@ -42,7 +50,6 @@ class MyBusinessApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Business Pro',
-      
       locale: const Locale('ar', 'EG'),
       
       theme: ThemeData(
@@ -108,13 +115,41 @@ class MyBusinessApp extends StatelessWidget {
         ),
       ),
       
-      // ✅ تعريف الروت عشان التنقل يشتغل صح
       routes: {
         '/': (context) => const HomeLayout(),
         '/shipping': (context) => const ShippingCompaniesScreen(),
       },
       
-      initialRoute: '/', // نقطة البداية
+      initialRoute: '/', 
+    );
+  }
+}
+
+// شاشة طوارئ تظهر لو النت قاطع أو المفاتيح غلط
+class ErrorScreen extends StatelessWidget {
+  final String error;
+  const ErrorScreen({super.key, required this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.wifi_off, size: 80, color: Colors.red),
+                const SizedBox(height: 20),
+                const Text("فشل بدء التطبيق", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                Text(error, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

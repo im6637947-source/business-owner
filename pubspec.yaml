@@ -29,7 +29,7 @@ dependencies:
   # --- 4. الطباعة والملفات (Printing & PDF) ---
   pdf: ^3.10.4
   printing: ^5.11.0
-  path_provider: ^2.1.1      # حفظ الملفات
+  path_provider: ^2.1.2      # حفظ الملفات
   open_file: ^3.3.2          # فتح الملفات
   file_picker: ^8.0.0        # اختيار ملفات
   excel: ^4.0.0              # التعامل مع الإكسيل

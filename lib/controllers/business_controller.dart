@@ -1,23 +1,21 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'; // ✅ المكتبة الجديدة
 import 'package:path_provider/path_provider.dart'; 
 import 'package:excel/excel.dart'; 
 import 'package:open_file/open_file.dart'; 
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart'; 
 
 class BusinessController with ChangeNotifier {
-  Database? _database;
+  // ✅ الوصول لعميل Supabase
+  final _supabase = Supabase.instance.client;
   
   // --- القوائم ---
   List<Map<String, dynamic>> _allTransactions = []; 
   List<Map<String, dynamic>> displayedTransactions = []; 
   
-  // Getter عشان لو حبيت توصل لكل الحركات من برة
   List<Map<String, dynamic>> get transactions => _allTransactions;
 
   List<Map<String, dynamic>> orders = []; 
@@ -43,34 +41,19 @@ class BusinessController with ChangeNotifier {
   // 🔔 إعداد الإشعارات
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
+  // ✅ دالة البدء (مبقتش تنشئ جداول، بقت تجيب داتا بس)
   Future<void> initDB() async {
     try {
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        sqfliteFfiInit();
-        databaseFactory = databaseFactoryFfi;
-      }
-
+      // إعداد الإشعارات
       const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
       const InitializationSettings initializationSettings = InitializationSettings(android: initializationSettingsAndroid);
       await flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
-      String path = join(await getDatabasesPath(), 'business_pro_v11.db'); 
-      
-      _database = await openDatabase(
-        path,
-        version: 1,
-        onCreate: (db, version) async {
-          await db.execute('CREATE TABLE transactions(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, amount REAL, isIncome INTEGER, date TEXT, type TEXT)');
-          await db.execute('CREATE TABLE clients(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, phone TEXT, address TEXT, governorate TEXT, region TEXT)');
-          await db.execute('CREATE TABLE shipping_companies(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, phone TEXT)');
-          await db.execute('CREATE TABLE orders(id INTEGER PRIMARY KEY AUTOINCREMENT, client_id INTEGER, details TEXT, notes TEXT, total_price REAL, shipping_cost REAL, deposit REAL, status TEXT, shipping_company TEXT, date TEXT)');
-        },
-      );
-      
+      // جلب البيانات من السيرفر
       await fetchData();
       checkLateOrdersNotification(); 
     } catch (e) {
-      debugPrint("❌ DB Error: $e");
+      debugPrint("❌ Init Error: $e");
     }
   }
 
@@ -88,9 +71,9 @@ class BusinessController with ChangeNotifier {
 
   // ================== Shipping Companies ==================
   Future<void> fetchShippingCompanies() async {
-    if (_database == null) return;
     try {
-      shippingCompanies = await _database!.query('shipping_companies');
+      final response = await _supabase.from('shipping_companies').select().order('id');
+      shippingCompanies = List<Map<String, dynamic>>.from(response);
       notifyListeners();
     } catch (e) {
       debugPrint("❌ Error fetching companies: $e");
@@ -98,22 +81,20 @@ class BusinessController with ChangeNotifier {
   }
 
   Future<void> addShippingCompany(String name, String phone) async {
-    if (_database == null) return;
-    await _database?.insert('shipping_companies', {'name': name, 'phone': phone});
+    await _supabase.from('shipping_companies').insert({'name': name, 'phone': phone});
     await fetchShippingCompanies();
   }
 
   Future<void> deleteShippingCompany(int id) async {
-    if (_database == null) return;
-    await _database?.delete('shipping_companies', where: 'id = ?', whereArgs: [id]);
+    await _supabase.from('shipping_companies').delete().eq('id', id);
     await fetchShippingCompanies();
   }
 
   // ================== Clients Logic ==================
   Future<void> fetchClients() async {
-    if (_database == null) return;
     try {
-      clients = await _database!.query('clients', orderBy: 'id DESC');
+      final response = await _supabase.from('clients').select().order('id', ascending: false);
+      clients = List<Map<String, dynamic>>.from(response);
       notifyListeners();
     } catch (e) {
       debugPrint("❌ Error fetching clients: $e");
@@ -148,21 +129,27 @@ class BusinessController with ChangeNotifier {
   }
 
   Future<void> fetchOrders() async {
-    if (_database == null) return;
-    
     try {
-      final List<Map<String, dynamic>> res = await _database!.rawQuery('''
-        SELECT orders.*, 
-               clients.name as client_name, 
-               clients.phone as client_phone, 
-               clients.address as client_address,
-               clients.governorate as client_gov,
-               clients.region as client_region
-        FROM orders 
-        INNER JOIN clients ON orders.client_id = clients.id 
-        ORDER BY orders.date DESC
-      ''');
-      orders = res;
+      // ✅ ربط الجداول في Supabase (Foreign Key)
+      // بنجيب الأوردر + بيانات العميل المرتبط بيه
+      final response = await _supabase
+          .from('orders')
+          .select('*, clients(name, phone, address, governorate, region)')
+          .order('date', ascending: false);
+
+      // تحويل البيانات لشكل مسطح (Flat) عشان الكود القديم يشتغل زي ما هو
+      orders = response.map((e) {
+        final client = e['clients'] != null ? e['clients'] as Map<String, dynamic> : {};
+        return {
+          ...e,
+          'client_name': client['name'] ?? 'Unknown',
+          'client_phone': client['phone'] ?? '',
+          'client_address': client['address'] ?? '',
+          'client_gov': client['governorate'] ?? '',
+          'client_region': client['region'] ?? '',
+        };
+      }).toList();
+
       filterOrders(); 
       notifyListeners();
     } catch (e) {
@@ -196,13 +183,16 @@ class BusinessController with ChangeNotifier {
       String shippingCompany,
       {String? date} 
       ) async {
-    if (_database == null) return;
-
-    int clientId = await _database!.insert('clients', {
+    
+    // 1. إضافة العميل والحصول على الـ ID بتاعه
+    final clientRes = await _supabase.from('clients').insert({
       'name': name, 'phone': phone, 'address': addr, 'governorate': gov, 'region': region
-    });
+    }).select(); // .select() مهمة عشان ترجع الداتا المضافة
+    
+    final int clientId = clientRes[0]['id'];
 
-    await _database?.insert('orders', {
+    // 2. إضافة الأوردر
+    await _supabase.from('orders').insert({
       'client_id': clientId, 'details': details, 'notes': notes,
       'total_price': price, 'shipping_cost': shippingCost, 'deposit': deposit,
       'shipping_company': shippingCompany,
@@ -210,13 +200,14 @@ class BusinessController with ChangeNotifier {
       'date': date ?? DateTime.now().toIso8601String().split('T')[0],
     });
 
+    // 3. إضافة العربون للخزنة
     if (deposit > 0) {
       await addTransaction('عربون أوردر - $name', deposit, true);
     }
     await fetchData(); 
   }
 
-  // ✅ تعديل: تحديث الأوردر + تحديث/حذف الحركة المالية المرتبطة
+  // ✅ تعديل: تحديث الأوردر + المنطق المالي (Supabase Version)
   Future<void> updateOrder(
       int id, String name, String phone, String addr,
       String gov, String region,
@@ -225,51 +216,38 @@ class BusinessController with ChangeNotifier {
       String shippingCompany,
       {String? date}
       ) async {
-    if (_database == null) return;
 
-    // 1. نجيب البيانات القديمة عشان نعرف العربون القديم والاسم القديم
-    var oldOrderData = await _database!.rawQuery('''
-      SELECT orders.deposit, clients.name 
-      FROM orders 
-      JOIN clients ON orders.client_id = clients.id 
-      WHERE orders.id = ?
-    ''', [id]);
+    // 1. جلب البيانات القديمة
+    final oldOrderRes = await _supabase
+        .from('orders')
+        .select('deposit, client_id, clients(name)')
+        .eq('id', id)
+        .single();
+    
+    if (oldOrderRes != null) {
+      double oldDeposit = (oldOrderRes['deposit'] ?? 0).toDouble();
+      String oldName = oldOrderRes['clients']['name'] ?? '';
 
-    if (oldOrderData.isNotEmpty) {
-      double oldDeposit = oldOrderData.first['deposit'] as double;
-      String oldName = oldOrderData.first['name'] as String;
-
-      // 2. تحديث الحركة المالية
+      // 2. منطق تحديث الخزنة
       if (oldDeposit != deposit || oldName != name) {
-        // لو العربون الجديد 0، امسح الحركة القديمة
         if (deposit == 0) {
-          await _database!.delete('transactions', 
-            where: 'title = ? AND amount = ?', 
-            whereArgs: ['عربون أوردر - $oldName', oldDeposit]
-          );
+          await _supabase.from('transactions').delete().match({'title': 'عربون أوردر - $oldName', 'amount': oldDeposit});
         } 
-        // لو كان 0 وبقى رقم، ضيف حركة جديدة
         else if (oldDeposit == 0 && deposit > 0) {
           await addTransaction('عربون أوردر - $name', deposit, true);
         }
-        // لو اتغير بس، حدث الحركة الموجودة
         else {
-          await _database!.update('transactions', 
-            {'title': 'عربون أوردر - $name', 'amount': deposit},
-            where: 'title = ? AND amount = ?',
-            whereArgs: ['عربون أوردر - $oldName', oldDeposit]
-          );
+          await _supabase.from('transactions')
+              .update({'title': 'عربون أوردر - $name', 'amount': deposit})
+              .match({'title': 'عربون أوردر - $oldName', 'amount': oldDeposit});
         }
       }
-    }
 
-    // 3. تحديث بيانات العميل والأوردر
-    var res = await _database!.query('orders', columns: ['client_id'], where: 'id = ?', whereArgs: [id]);
-    if (res.isNotEmpty) {
-      int clientId = res.first['client_id'] as int;
-      await _database?.update('clients', {
+      // 3. تحديث العميل والأوردر
+      int clientId = oldOrderRes['client_id'];
+      await _supabase.from('clients').update({
         'name': name, 'phone': phone, 'address': addr, 'governorate': gov, 'region': region
-      }, where: 'id = ?', whereArgs: [clientId]);
+      }).eq('id', clientId);
 
       Map<String, dynamic> updateData = {
         'details': details, 'notes': notes, 'total_price': price,
@@ -278,61 +256,56 @@ class BusinessController with ChangeNotifier {
       };
       if(date != null) updateData['date'] = date;
 
-      await _database?.update('orders', updateData, where: 'id = ?', whereArgs: [id]);
+      await _supabase.from('orders').update(updateData).eq('id', id);
     }
     await fetchData();
   }
 
   Future<void> updateOrderStatus(int id, String newStatus) async {
-    if (_database == null) return;
-    await _database?.update('orders', {'status': newStatus}, where: 'id = ?', whereArgs: [id]);
+    await _supabase.from('orders').update({'status': newStatus}).eq('id', id);
     await fetchOrders(); 
   }
   
-  // ✅ تعديل: حذف الأوردر + حذف الحركة المالية المرتبطة
+  // ✅ حذف الأوردر (Supabase Version)
   Future<void> deleteOrder(int id) async {
-    if (_database == null) return;
+    // 1. هات الداتا قبل الحذف
+    final orderRes = await _supabase
+        .from('orders')
+        .select('deposit, clients(name)')
+        .eq('id', id)
+        .maybeSingle();
 
-    // 1. نجيب بيانات الأوردر قبل الحذف
-    var orderRes = await _database!.rawQuery('''
-      SELECT orders.deposit, clients.name 
-      FROM orders 
-      JOIN clients ON orders.client_id = clients.id 
-      WHERE orders.id = ?
-    ''', [id]);
+    if (orderRes != null) {
+      String clientName = orderRes['clients']['name'];
+      double deposit = (orderRes['deposit'] ?? 0).toDouble();
 
-    // 2. لو ليه عربون، نمسحه من الخزنة
-    if (orderRes.isNotEmpty) {
-      String clientName = orderRes.first['name'] as String;
-      double deposit = orderRes.first['deposit'] as double;
-
+      // 2. امسح العربون من الخزنة
       if (deposit > 0) {
-        await _database!.delete(
-          'transactions',
-          where: 'title = ? AND amount = ?',
-          whereArgs: ['عربون أوردر - $clientName', deposit]
-        );
+        await _supabase.from('transactions').delete().match({
+          'title': 'عربون أوردر - $clientName',
+          'amount': deposit
+        });
       }
     }
 
-    // 3. حذف الأوردر نفسه
-    await _database?.delete('orders', where: 'id = ?', whereArgs: [id]);
-    await fetchData(); // تحديث شامل (عشان يسمع في الخزنة والشحنات)
+    // 3. امسح الأوردر
+    await _supabase.from('orders').delete().eq('id', id);
+    await fetchData();
   }
 
   Future<void> updateOrderDeposit(int orderId, double newTotalDeposit) async {
-    if (_database == null) return;
-    var result = await _database!.query('orders', columns: ['deposit', 'client_id'], where: 'id = ?', whereArgs: [orderId]);
-    if (result.isNotEmpty) {
-      double oldDeposit = result.first['deposit'] as double;
-      int clientId = result.first['client_id'] as int;
-      double difference = newTotalDeposit - oldDeposit;
-      await _database?.update('orders', {'deposit': newTotalDeposit}, where: 'id = ?', whereArgs: [orderId]);
-      if (difference > 0) {
-          var clientRes = await _database!.query('clients', columns: ['name'], where: 'id = ?', whereArgs: [clientId]);
-          String clientName = clientRes.isNotEmpty ? clientRes.first['name'] as String : 'عميل';
-          await addTransaction('تحصيل متبقي - $clientName', difference, true);
-      }
+    final result = await _supabase.from('orders').select('deposit, client_id').eq('id', orderId).single();
+    
+    double oldDeposit = (result['deposit'] ?? 0).toDouble();
+    int clientId = result['client_id'];
+    double difference = newTotalDeposit - oldDeposit;
+
+    await _supabase.from('orders').update({'deposit': newTotalDeposit}).eq('id', orderId);
+
+    if (difference > 0) {
+       final clientRes = await _supabase.from('clients').select('name').eq('id', clientId).single();
+       String clientName = clientRes['name'];
+       await addTransaction('تحصيل متبقي - $clientName', difference, true);
     }
     await fetchData(); 
   }
@@ -369,14 +342,13 @@ class BusinessController with ChangeNotifier {
   }
 
   Future<void> fetchTransactions() async {
-    if (_database == null) return; 
-
     try {
-      _allTransactions = await _database!.query('transactions', orderBy: 'date DESC');
+      final response = await _supabase.from('transactions').select().order('date', ascending: false);
+      _allTransactions = List<Map<String, dynamic>>.from(response);
       
       totalIncome = 0.0; totalExpense = 0.0;
       for (var item in _allTransactions) {
-        double amt = item['amount'];
+        double amt = (item['amount'] ?? 0).toDouble();
         if (item['isIncome'] == 1) totalIncome += amt; else totalExpense += amt;
       }
       totalBalance = totalIncome - totalExpense;
@@ -388,11 +360,13 @@ class BusinessController with ChangeNotifier {
   }
 
   Future<bool> addTransaction(String title, double amount, bool isIncome) async {
-    if (_database == null) return false;
     try {
-      await _database?.insert('transactions', {
-        'title': title, 'amount': amount, 'isIncome': isIncome ? 1 : 0,
-        'date': DateTime.now().toIso8601String(), 'type': 'General'
+      await _supabase.from('transactions').insert({
+        'title': title, 
+        'amount': amount, 
+        'isIncome': isIncome ? 1 : 0,
+        'date': DateTime.now().toIso8601String(), 
+        'type': 'General'
       });
       await fetchTransactions();
       return true;
@@ -400,18 +374,20 @@ class BusinessController with ChangeNotifier {
   }
 
   Future<void> deleteTransaction(int id) async {
-    if (_database == null) return;
-    await _database?.delete('transactions', where: 'id = ?', whereArgs: [id]);
+    await _supabase.from('transactions').delete().eq('id', id);
     await fetchTransactions();
   }
 
   Future<void> updateTransaction(int id, String title, double amount, bool isIncome) async {
-      if (_database == null) return;
-      await _database?.update('transactions', {'title': title, 'amount': amount, 'isIncome': isIncome ? 1 : 0}, where: 'id = ?', whereArgs: [id]);
+      await _supabase.from('transactions').update({
+        'title': title, 
+        'amount': amount, 
+        'isIncome': isIncome ? 1 : 0
+      }).eq('id', id);
       await fetchTransactions();
   }
 
-  // --- دوال التحديد ---
+  // --- دوال التحديد (زي ما هي) ---
   void toggleOrderSelection(int id) { if (selectedOrderIds.contains(id)) selectedOrderIds.remove(id); else selectedOrderIds.add(id); isSelectionMode = selectedOrderIds.isNotEmpty; notifyListeners(); }
   void selectAllOrders() { selectedOrderIds = displayedOrders.map((o) => o['id'] as int).toSet(); isSelectionMode = true; notifyListeners(); }
   void clearSelection() { selectedOrderIds.clear(); isSelectionMode = false; notifyListeners(); }
@@ -419,7 +395,7 @@ class BusinessController with ChangeNotifier {
   void selectAllTransactions() { selectedTransactionIds = displayedTransactions.map((e) => e['id'] as int).toSet(); notifyListeners(); }
   void clearTransactionSelection() { selectedTransactionIds.clear(); notifyListeners(); }
 
-  // --- تصدير الأوردرات للإكسيل ---
+  // --- تصدير الأوردرات للإكسيل (زي ما هي) ---
   Future<void> exportSelectedToExcel() async {
     var excel = Excel.createExcel();
     Sheet sheetObject = excel['Orders'];
@@ -447,7 +423,7 @@ class BusinessController with ChangeNotifier {
     
     for (var order in selectedList) {
       double total = (order['total_price'] ?? 0) + (order['shipping_cost'] ?? 0);
-      double deposit = order['deposit'] ?? 0;
+      double deposit = (order['deposit'] ?? 0).toDouble();
       double remaining = total - deposit;
 
       sheetObject.appendRow([
@@ -503,7 +479,7 @@ class BusinessController with ChangeNotifier {
         TextCellValue(trans['date'].toString().split('T')[0]),
         TextCellValue(trans['title']),
         TextCellValue(trans['isIncome'] == 1 ? 'إيراد' : 'مصروف'),
-        DoubleCellValue(trans['amount'])
+        DoubleCellValue((trans['amount'] ?? 0).toDouble())
       ]);
     }
 
@@ -522,8 +498,8 @@ class BusinessController with ChangeNotifier {
 
 // ================== AI Service ==================
 class AiService {
-  // ⚠️⚠️⚠️ حط مفتاحك هنا ⚠️⚠️⚠️
-  static const String _apiKey = 'YOUR_API_KEY_HERE';
+  // ⚠️⚠️⚠️ مفتاحك كما هو ⚠️⚠️⚠️
+  static const String _apiKey = 'AIzaSyALkuePnIpmlRWV3maMomoxKBCzj6A-PsA';
 
   static Future<Map<String, dynamic>?> analyzeText(String text) async {
     try {

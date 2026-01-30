@@ -649,7 +649,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
                             if (isEdit) {
                               await ctrl.updateOrder(
-                                orderToEdit!['id'],
+                                orderToEdit['id'],
                                 nameCtrl.text, phoneCtrl.text, addrCtrl.text,
                                 govCtrl.text, regionCtrl.text,
                                 detailsCtrl.text, notesCtrl.text,
